@@ -6,7 +6,6 @@ import android.content.pm.PackageManager
 import android.content.pm.Signature
 import android.os.Build
 import org.lsposed.corepatch.Config
-import org.lsposed.corepatch.Constant
 import org.lsposed.corepatch.XposedHelper.findClassIfExists
 import org.lsposed.corepatch.XposedHelper.hookAfter
 import org.lsposed.corepatch.XposedHelper.hookBefore
@@ -87,6 +86,10 @@ object ApkSignatureVerifierHook : BaseHook() {
             .forEach { verifyV1SignatureMethod ->
                 hookAfter(verifyV1SignatureMethod) { callback ->
                     if (Config.isBypassVerificationEnabled()) {
+                        val apkPath = callback.args.filterIsInstance<String>().firstOrNull()
+                        if (apkPath == null || !apkPath.contains("/data/app")) {
+                            return@hookAfter
+                        }
                         val throwable = callback.throwable
                         var parseError: Int? = null
                         if (parseResultClazz != null &&
@@ -182,10 +185,11 @@ object ApkSignatureVerifierHook : BaseHook() {
                                 }
                             }
 
-                            val signingDetailsArgs: Array<Any> = arrayOf(
-                                signaturesBefore ?: arrayOf(Signature(Constant.SIGNATURE)),
-                                1,
-                            )
+                            if (signaturesBefore == null) {
+                                log("no signature recovered for $apkPath; refusing fallback")
+                                return@hookAfter
+                            }
+                            val signingDetailsArgs: Array<Any> = arrayOf(requireNotNull(signaturesBefore), 1)
                             var newResult =
                                 signingDetailsConstructor.newInstance(*signingDetailsArgs)
 
