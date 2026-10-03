@@ -6,8 +6,10 @@ import android.content.pm.PackageManager
 import android.content.pm.Signature
 import android.os.Build
 import org.lsposed.corepatch.Config
+import org.lsposed.corepatch.VerifyingApk
 import org.lsposed.corepatch.XposedHelper.findClassIfExists
 import org.lsposed.corepatch.XposedHelper.hookAfter
+import org.lsposed.corepatch.XposedHelper.hookAround
 import org.lsposed.corepatch.XposedHelper.hookBefore
 import org.lsposed.corepatch.XposedHelper.hostClassLoader
 import org.lsposed.corepatch.XposedHelper.log
@@ -24,6 +26,22 @@ object ApkSignatureVerifierHook : BaseHook() {
     override fun hook() {
         val apkSignatureVerifierClazz =
             hostClassLoader.loadClass("android.util.apk.ApkSignatureVerifier")
+
+        // Record the APK path for the duration of each verification entry point
+        // (verify*, unsafeGetCertsWithoutVerification), see VerifyingApk.
+        apkSignatureVerifierClazz.declaredMethods
+            .filter { method ->
+                (method.name.startsWith("verify") ||
+                    method.name == "unsafeGetCertsWithoutVerification") &&
+                    method.parameterTypes.contains(String::class.java)
+            }
+            .forEach { method ->
+                hookAround(method, { callback ->
+                    VerifyingApk.enter(callback.args.filterIsInstance<String>().firstOrNull() ?: "")
+                }, {
+                    VerifyingApk.exit()
+                })
+            }
 
         val signingDetailsClazz =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -87,7 +105,7 @@ object ApkSignatureVerifierHook : BaseHook() {
                 hookAfter(verifyV1SignatureMethod) { callback ->
                     if (Config.isBypassVerificationEnabled()) {
                         val apkPath = callback.args.filterIsInstance<String>().firstOrNull()
-                        if (apkPath == null || !apkPath.contains("/data/app")) {
+                        if (!VerifyingApk.isUserApp(apkPath)) {
                             return@hookAfter
                         }
                         val throwable = callback.throwable

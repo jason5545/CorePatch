@@ -2,6 +2,7 @@ package org.lsposed.corepatch.hook
 
 import android.annotation.SuppressLint
 import org.lsposed.corepatch.Config
+import org.lsposed.corepatch.VerifyingApk
 import org.lsposed.corepatch.XposedHelper.hookBefore
 import org.lsposed.corepatch.XposedHelper.hostClassLoader
 
@@ -16,7 +17,7 @@ object ApkSigningBlockUtilsHook : BaseHook() {
         val parseVerityDigestAndVerifySourceLengthMethod =
             apkSigningBlockUtilsClazz.declaredMethods.first { m -> m.name == "parseVerityDigestAndVerifySourceLength" }
         hookBefore(parseVerityDigestAndVerifySourceLengthMethod) { callback ->
-            if (Config.isBypassVerificationEnabled()) {
+            if (Config.isBypassVerificationEnabled() && VerifyingApk.isCurrentUserApp()) {
                 callback.returnAndSkip((callback.args[0] as ByteArray).copyOfRange(0, 32))
             }
         }
@@ -24,7 +25,7 @@ object ApkSigningBlockUtilsHook : BaseHook() {
         val verifyIntegrityForVerityBasedAlgorithmMethod =
             apkSigningBlockUtilsClazz.declaredMethods.first { m -> m.name == "verifyIntegrityForVerityBasedAlgorithm" }
         hookBefore(verifyIntegrityForVerityBasedAlgorithmMethod) { callback ->
-            if (Config.isBypassVerificationEnabled()) {
+            if (Config.isBypassVerificationEnabled() && VerifyingApk.isCurrentUserApp()) {
                 callback.returnAndSkip(null)
             }
         }

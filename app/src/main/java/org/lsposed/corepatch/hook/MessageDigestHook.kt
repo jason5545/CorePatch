@@ -1,6 +1,7 @@
 package org.lsposed.corepatch.hook
 
 import org.lsposed.corepatch.Config
+import org.lsposed.corepatch.VerifyingApk
 import org.lsposed.corepatch.XposedHelper
 import org.lsposed.corepatch.XposedHelper.hostClassLoader
 
@@ -15,7 +16,7 @@ object MessageDigestHook : BaseHook() {
             "isEqual", ByteArray::class.java, ByteArray::class.java
         )
         XposedHelper.hookBefore(isEqualMethod) { callback ->
-            if (Config.isBypassVerificationEnabled()) {
+            if (Config.isBypassVerificationEnabled() && VerifyingApk.isCurrentUserApp()) {
                 callback.returnAndSkip(true)
             }
         }

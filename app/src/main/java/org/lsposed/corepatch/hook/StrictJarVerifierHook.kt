@@ -2,9 +2,11 @@ package org.lsposed.corepatch.hook
 
 import android.annotation.SuppressLint
 import org.lsposed.corepatch.Config
+import org.lsposed.corepatch.VerifyingApk
 import org.lsposed.corepatch.XposedHelper.hookAfter
 import org.lsposed.corepatch.XposedHelper.hookBefore
 import org.lsposed.corepatch.XposedHelper.hostClassLoader
+import java.security.cert.Certificate
 
 object StrictJarVerifierHook : BaseHook() {
     override val name = "StrictJarVerifierHook"
@@ -18,7 +20,7 @@ object StrictJarVerifierHook : BaseHook() {
         val verifyMessageDigestMethod =
             strictJarVerifierClazz.declaredMethods.first { m -> m.name == "verifyMessageDigest" && m.returnType == Boolean::class.java }
         hookBefore(verifyMessageDigestMethod) { callback ->
-            if (Config.isBypassVerificationEnabled()) {
+            if (Config.isBypassVerificationEnabled() && VerifyingApk.isCurrentUserApp()) {
                 callback.returnAndSkip(true)
             }
         }
@@ -35,7 +37,7 @@ object StrictJarVerifierHook : BaseHook() {
         val verifyMethod =
             strictJarVerifierClazz.declaredMethods.first { m -> m.name == "verify" && m.returnType == Boolean::class.java }
         hookBefore(verifyMethod) { callback ->
-            if (Config.isBypassVerificationEnabled()) {
+            if (Config.isBypassVerificationEnabled() && VerifyingApk.isCurrentUserApp()) {
                 callback.returnAndSkip(true)
             }
         }
@@ -45,7 +47,7 @@ object StrictJarVerifierHook : BaseHook() {
             strictJarVerifierClazz.declaredFields.first { f -> f.name == "signatureSchemeRollbackProtectionsEnforced" }
         signatureSchemeRollbackProtectionsEnforcedField.isAccessible = true
         hookAfter(strictJarVerifierConstructor) { callback ->
-            if (Config.isBypassVerificationEnabled()) {
+            if (Config.isBypassVerificationEnabled() && VerifyingApk.isCurrentUserApp()) {
                 signatureSchemeRollbackProtectionsEnforcedField.set(
                     callback.thisObject, false
                 )
@@ -67,13 +69,21 @@ object StrictJarVerifierHook : BaseHook() {
             "verifyBytes", ByteArray::class.java, ByteArray::class.java
         )
         hookAfter(verifyBytesMethod) { callback ->
-            if (Config.isBypassDigestEnabled() && !Config.isUsePreviousSignaturesEnabled()) {
+            if (Config.isBypassDigestEnabled() && !Config.isUsePreviousSignaturesEnabled() &&
+                VerifyingApk.isCurrentUserApp()
+            ) {
                 val block = pkcs7Constructor.newInstance(callback.args[0])
                 val signerInfo = getSignerInfosMethod.invoke(block) as Array<*>
                 if (signerInfo.isEmpty()) return@hookAfter
                 val signer = signerInfo[0]
-                val certs = getCertificateChainMethod.invoke(signer, block)
-                callback.result = certs
+                // getCertificateChain returns ArrayList<X509Certificate>; returning the list
+                // from verifyBytes (Certificate[]) throws ClassCastException in the caller
+                // and fails v1 verification.
+                val certs = (getCertificateChainMethod.invoke(signer, block) as? List<*>)
+                    ?.filterIsInstance<Certificate>()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?: return@hookAfter
+                callback.result = certs.toTypedArray()
                 callback.throwable = null
             }
         }

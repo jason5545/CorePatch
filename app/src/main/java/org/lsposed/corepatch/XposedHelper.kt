@@ -100,6 +100,12 @@ object XposedHelper {
         return xposedModule.hook(executable).intercept(CustomHooker(afterCallback = callback))
     }
 
+    fun hookAround(
+        executable: Executable, before: BeforeCallback, after: AfterCallback
+    ): XposedInterface.HookHandle {
+        return xposedModule.hook(executable).intercept(CustomHooker(before, after))
+    }
+
     fun log(message: String, throwable: Throwable? = null) {
         if (throwable != null) {
             xposedModule.log(Log.ERROR, "CorePatch", message, throwable)
